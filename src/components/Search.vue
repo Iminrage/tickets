@@ -2,10 +2,13 @@
   <form class="form" @submit.prevent="submit">
     <div class="form__wrapper">
       <div class="form__input-wrapper">
-        <input class="form__input" placeholder="Откуда" type="text" v-model="dept" />
+        <span v-if="$v.dept.$error" class="form__error">Это поле обязательно!</span>
+        <input class="form__input" placeholder="Откуда" type="text" v-model.trim="$v.dept.$model" />
       </div>
       <div class="form__input-wrapper">
-        <input class="form__input" placeholder="Куда" type="text" v-model="dest" />
+        <span v-if="$v.dest.$error" class="form__error">Это поле обязательно!</span>
+        <input class="form__input" placeholder="Куда" type="text" v-model.trim="$v.dest.$model" />
+        <button class="form__swap" type="button" @click="swap"></button>
       </div>
       <div class="form__date-wrapper">
         <datepicker placeholder="Туда" v-model="date" :language="ru" :disabledDates="disabledDates"></datepicker>
@@ -24,6 +27,7 @@
 <script>
 import Datepicker from "vuejs-datepicker";
 import { ru } from "vuejs-datepicker/dist/locale";
+import { required } from "vuelidate/lib/validators";
 export default {
   name: "Search",
   components: {
@@ -49,12 +53,28 @@ export default {
       ru
     };
   },
+  validations: {
+    dept: {
+      required
+    },
+    dest: {
+      required
+    }
+  },
   methods: {
+    swap() {
+      let tmp = this.dept;
+      this.dept = this.dest;
+      this.dest = tmp;
+    },
     async submit() {
-      this.tickets = await [];
-      let searchId = await this.getId();
-      await this.getTickets(searchId);
-      await this.sortEmAll();
+      this.$v.$touch();
+      if (!this.$v.$invalid) {
+        this.tickets = await [];
+        let searchId = await this.getId();
+        await this.getTickets(searchId);
+        await this.sortEmAll();
+      }
     },
     async getId() {
       let searchId;
@@ -81,8 +101,6 @@ export default {
         }
       } else if ((await newPromise.status) > 499) {
         this.getTickets(searchId);
-      } else {
-        console.log("404?");
       }
     },
     async getIata(search) {
@@ -91,59 +109,66 @@ export default {
       );
       if (await promise.ok) {
         let json = await promise.json();
-        return json[0].code;
-      } else {
-        console.log("error");
+        if (json.length === 0) {
+          return "";
+        } else {
+          return json[0].code;
+        }
       }
     },
     async sortEmAll() {
       let dept = await this.getIata(this.dept);
       let dest = await this.getIata(this.dest);
       let sorted;
-      if (this.date || this.dateBack) {
-        if (this.date && this.dateBack) {
-          let toDate = `${this.date.getMonth()}-${this.date.getDate()}`;
-          let bDate = `${this.dateBack.getMonth()}-${this.dateBack.getDate()}`;
+      let response;
+      if (dept.length && dest.length) {
+        if (this.date || this.dateBack) {
+          if (this.date && this.dateBack) {
+            let toDate = `${this.date.getMonth()}-${this.date.getDate()}`;
+            let bDate = `${this.dateBack.getMonth()}-${this.dateBack.getDate()}`;
+            sorted = await this.tickets.filter(
+              ticket =>
+                ticket.segments[0].origin === dept &&
+                ticket.segments[0].destination === dest &&
+                `${new Date(ticket.segments[0].date).getMonth()}-${new Date(
+                  ticket.segments[0].date
+                ).getDate()}` === toDate &&
+                `${new Date(ticket.segments[1].date).getMonth()}-${new Date(
+                  ticket.segments[1].date
+                ).getDate()}` === bDate
+            );
+          } else if (this.date) {
+            let toDate = `${this.date.getMonth()}-${this.date.getDate()}`;
+            sorted = await this.tickets.filter(
+              ticket =>
+                ticket.segments[0].origin === dept &&
+                ticket.segments[0].destination === dest &&
+                `${new Date(ticket.segments[0].date).getMonth()}-${new Date(
+                  ticket.segments[0].date
+                ).getDate()}` === toDate
+            );
+          } else if (this.dateBack) {
+            let bDate = `${this.dateBack.getMonth()}-${this.dateBack.getDate()}`;
+            sorted = await this.tickets.filter(
+              ticket =>
+                ticket.segments[0].origin === dept &&
+                ticket.segments[0].destination === dest &&
+                `${new Date(ticket.segments[1].date).getMonth()}-${new Date(
+                  ticket.segments[1].date
+                ).getDate()}` === bDate
+            );
+          }
+        } else {
           sorted = await this.tickets.filter(
             ticket =>
               ticket.segments[0].origin === dept &&
-              ticket.segments[0].destination === dest &&
-              `${new Date(ticket.segments[0].date).getMonth()}-${new Date(
-                ticket.segments[0].date
-              ).getDate()}` === toDate &&
-              `${new Date(ticket.segments[1].date).getMonth()}-${new Date(
-                ticket.segments[1].date
-              ).getDate()}` === bDate
-          );
-        } else if (this.date) {
-          let toDate = `${this.date.getMonth()}-${this.date.getDate()}`;
-          sorted = await this.tickets.filter(
-            ticket =>
-              ticket.segments[0].origin === dept &&
-              ticket.segments[0].destination === dest &&
-              `${new Date(ticket.segments[0].date).getMonth()}-${new Date(
-                ticket.segments[0].date
-              ).getDate()}` === toDate
-          );
-        } else if (this.dateBack) {
-          let bDate = `${this.dateBack.getMonth()}-${this.dateBack.getDate()}`;
-          sorted = await this.tickets.filter(
-            ticket =>
-              ticket.segments[0].origin === dept &&
-              ticket.segments[0].destination === dest &&
-              `${new Date(ticket.segments[1].date).getMonth()}-${new Date(
-                ticket.segments[1].date
-              ).getDate()}` === bDate
+              ticket.segments[0].destination === dest
           );
         }
+        response = sorted.length > 0 ? true : false;
       } else {
-        sorted = await this.tickets.filter(
-          ticket =>
-            ticket.segments[0].origin === dept &&
-            ticket.segments[0].destination === dest
-        );
+        response = false;
       }
-      let response = sorted.length > 0 ? true : false;
       this.$emit("sorted", sorted, response);
     }
   }
